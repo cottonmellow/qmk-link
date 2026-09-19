@@ -1,0 +1,51 @@
+name: Build QMK-Link Vial
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            python3 \
+            git \
+            gcc-arm-none-eabi \
+            binutils-arm-none-eabi
+
+      - name: Check ARM compiler
+        run: |
+          arm-none-eabi-gcc --version
+          arm-none-eabi-g++ --version
+
+      - name: Initialize TinyUSB
+        run: |
+          git -C firmware/firm-sdk/pico-sdk submodule update --init lib/tinyusb
+
+      - name: Fetch upstream
+        run: |
+          python3 firmware/firm-sdk/tools/fetch_upstream.py
+
+      - name: Build Vial
+        working-directory: firmware/qmk-link
+        run: |
+          cmake -S . -B build-vial -G Ninja -DKEY_PROTOCOL=vial
+          cmake --build build-vial --parallel
+
+      - name: Upload Vial UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: qmk-link-vial
+          path: firmware/qmk-link/build-vial/src/qmk-link-vial.uf2
+          if-no-files-found: error
