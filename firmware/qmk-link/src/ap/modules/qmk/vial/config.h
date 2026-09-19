@@ -75,7 +75,7 @@
 //
 // 안 적으면 vial.h 가 EEPROM 크기를 보고 알아서 정하는데, 우리 16KB 면
 // 큰 값을 골라 매크로 버퍼를 잡아먹는다. 명시한다.
-#define VIAL_TAP_DANCE_ENTRIES      16
-#define VIAL_COMBO_ENTRIES          16
-#define VIAL_KEY_OVERRIDE_ENTRIES    8
-#define VIAL_ALT_REPEAT_KEY_ENTRIES  8
+#define VIAL_TAP_DANCE_ENTRIES       32
+#define VIAL_COMBO_ENTRIES           16
+#define VIAL_KEY_OVERRIDE_ENTRIES    32
+#define VIAL_ALT_REPEAT_KEY_ENTRIES   8
