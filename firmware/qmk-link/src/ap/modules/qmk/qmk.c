@@ -1,4 +1,3 @@
-```c
 /*
  * qmk.c — QMK 코어 구동
  *
@@ -382,4 +381,3 @@ static void cliCmd(cli_args_t *args)
     cliPrintf("qmk eeprom [flush|erase]\n");
   }
 }
-```
