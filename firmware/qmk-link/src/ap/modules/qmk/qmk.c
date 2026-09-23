@@ -362,3 +362,4 @@ static void cliCmd(cli_args_t *args)
     cliPrintf("qmk eeprom [flush|erase]\n");
   }
 }
+
