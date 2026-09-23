@@ -138,18 +138,11 @@ void qmkUpdate(void)
 {
   /*
    * ★ 재진입을 막는다.
-   *
-   *   QMK 가 wait_ms() 를 부르면 이렇게 돌아온다 —
-   *
-   *     keyboard_task() -> qs_wait_ms() -> wait_ms() -> delay()
-   *       -> cliLoopIdle() -> qmkUpdate()   ★ 재진입
-   *
-   *   대신 USB 처리는 cliLoopIdle() 에서 계속 돈다.
    */
   if (is_busy == true) return;
   is_busy = true;
 
-  // QMK 가 꺼져 있어도 EEPROM 작업은 계속 처리한다.
+  // QMK가 꺼져 있어도 EEPROM 작업은 계속 처리한다.
   eeprom_task();
 
   if (is_qmk_on != true)
@@ -168,7 +161,8 @@ void qmkUpdate(void)
     while (usbdHidGetRaw(raw_data) == true)
     {
 #ifdef VIAL_ENABLE
-      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN)) continue;
+      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN))
+        continue;
 
       if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, vial_unlocked == 0))
         continue;
@@ -199,7 +193,12 @@ void qmkUpdate(void)
 
   keyboard_task();
 
-  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
+  /*
+   * 현재 QMK 레이어를 USB CDC로 알린다.
+   *
+   * layer_state_t가 8비트인 경우에도
+   * 0~7 레이어를 모두 표현할 수 있다.
+   */
   {
     static uint8_t last_layer = 0xFF;
 
@@ -213,28 +212,7 @@ void qmkUpdate(void)
     {
       last_layer = current_layer;
 
-      cliPrintf(
-          "LAYER %u STATE %08X\n",
-          (unsigned)current_layer,
-          (unsigned)layer_state
-      );
-    }
-  }
-
-  task_count++;
-  is_busy = false;
-}
-  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
-  {
-    static uint8_t last_layer = 0xFF;
-
-    layer_state_t active_layers = layer_state | default_layer_state;
-    uint8_t current_layer = get_highest_layer(active_layers);
-
-    if (current_layer != last_layer)
-    {
-      last_layer = current_layer;
-      cliPrintf("LAYER %u STATE %08X\n",
+      cliPrintf("LAYER %u STATE %02X\n",
                 (unsigned)current_layer,
                 (unsigned)layer_state);
     }
@@ -243,8 +221,6 @@ void qmkUpdate(void)
   task_count++;
   is_busy = false;
 }
-
-
 static void cliCmd(cli_args_t *args)
 {
   bool ret = false;
