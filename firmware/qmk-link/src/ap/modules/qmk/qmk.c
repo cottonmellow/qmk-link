@@ -228,9 +228,23 @@ void qmkUpdate(void)
     }
   }
 
-  keyboard_task();
-  task_count++;
+ keyboard_task();
 
+  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
+  {
+    static uint8_t last_layer = 0xFF;
+
+    layer_state_t active_layers = layer_state | default_layer_state;
+    uint8_t current_layer = get_highest_layer(active_layers);
+
+    if (current_layer != last_layer)
+    {
+      last_layer = current_layer;
+      cliPrintf("LAYER %u\n", (unsigned)current_layer);
+    }
+  }
+
+  task_count++;
   is_busy = false;
 }
 
