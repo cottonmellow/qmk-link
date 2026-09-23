@@ -134,16 +134,6 @@ uint8_t qmkGetProfile(void)
 }
 
 void qmkProfileCopyTo(uint8_t profile)
-{
-  eepromProfileCopy(profile);
-}
-
-bool qmkIsBusy(void)
-{
-  return is_busy;
-}
-
-```c
 void qmkUpdate(void)
 {
   /*
@@ -234,61 +224,6 @@ void qmkUpdate(void)
   task_count++;
   is_busy = false;
 }
-```
-
-  // 프로파일이 안 채워져 있으면 채운다 (처음 부팅 · EEPROM 초기화 뒤).
-  // 매직 4바이트 비교라 매 루프 돌아도 부담이 없다.
-  eepromProfileEnsure();
-
-#ifdef RAW_ENABLE
-  // ★ VIA 요청 처리는 여기서 한다 — USB 콜백 안이 아니다 (usbd_hid.h 주석 참고).
-  {
-    uint8_t raw_data[HID_RAW_REPORT_LEN];
-
-    while (usbdHidGetRaw(raw_data) == true)
-    {
-      /*
-       * ★ 우리 명령을 먼저 걷어낸다 (link_cmd.h 주석 참고).
-       *
-       *   upstream 훅(via_command_kb / raw_hid_receive_kb)은 한쪽 트리에만
-       *   있어서 반대편에서 죽은 코드가 된다. 여기서 가로채면 둘 다 된다.
-       *
-       *   Vial 의 잠금 상태는 알림용으로만 실어 보낸다 — 우리 명령은 잠겨 있어도
-       *   답한다 (link_cmd.h 주석 참고).
-       */
-#ifdef VIAL_ENABLE
-      /* 저장된 레이아웃이 있으면 Vial 정의를 그것으로 내준다 */
-      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN)) continue;
-
-      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, vial_unlocked == 0)) continue;
-#else
-      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, false)) continue;
-#endif
-
-      raw_hid_receive(raw_data, HID_RAW_REPORT_LEN);
-    }
-  }
-#endif
-
-  // ★ 호스트가 HID 프로토콜을 바꾸면 눌린 키를 비운다.
-  //
-  //   boot <-> report 로 갈리면 리포트가 나가는 인터페이스가 통째로 바뀐다
-  //   (IF0 6KRO <-> IF1 NKRO). 그때 눌려 있던 키는 옛 인터페이스에 남은 채로
-  //   아무도 안 뗀다.
-  {
-    static uint8_t proto_pre = 1;
-    uint8_t        proto     = usbdHidGetProtocol();
-
-    if (proto != proto_pre)
-    {
-      proto_pre = proto;
-      clear_keyboard();
-      logPrintf("[  ] HID protocol %s\r\n", proto ? "report" : "boot");
-    }
-  }
-
- keyboard_task();
-
   // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
   {
     static uint8_t last_layer = 0xFF;
