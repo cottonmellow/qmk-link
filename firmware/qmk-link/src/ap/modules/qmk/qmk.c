@@ -1,3 +1,4 @@
+```c
 /*
  * qmk.c — QMK 코어 구동
  *
@@ -48,9 +49,7 @@ static void cliCmd(cli_args_t *args);
 static bool     is_qmk_on      = false;
 static bool     is_passthrough = false;
 static bool     is_busy        = false;   /* qmkUpdate() 재진입 가드 */
-static uint32_t task_count  = 0;
-
-
+static uint32_t task_count     = 0;
 
 
 static bool qmkInit(void)
@@ -134,6 +133,15 @@ uint8_t qmkGetProfile(void)
 }
 
 void qmkProfileCopyTo(uint8_t profile)
+{
+  eepromProfileCopy(profile);
+}
+
+bool qmkIsBusy(void)
+{
+  return is_busy;
+}
+
 void qmkUpdate(void)
 {
   /*
@@ -194,10 +202,17 @@ void qmkUpdate(void)
   keyboard_task();
 
   /*
-   * 현재 QMK 레이어를 USB CDC로 알린다.
+   * 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
    *
-   * layer_state_t가 8비트인 경우에도
-   * 0~7 레이어를 모두 표현할 수 있다.
+   * layer_state_t가 8비트인 경우:
+   *   Layer 0 = 0x01
+   *   Layer 1 = 0x02
+   *   Layer 2 = 0x04
+   *   Layer 3 = 0x08
+   *   Layer 4 = 0x10
+   *   Layer 5 = 0x20
+   *   Layer 6 = 0x40
+   *   Layer 7 = 0x80
    */
   {
     static uint8_t last_layer = 0xFF;
@@ -212,7 +227,7 @@ void qmkUpdate(void)
     {
       last_layer = current_layer;
 
-      cliPrintf("LAYER %u STATE %02X\n",
+      cliPrintf("LAYER %u STATE %08X\n",
                 (unsigned)current_layer,
                 (unsigned)layer_state);
     }
@@ -221,6 +236,7 @@ void qmkUpdate(void)
   task_count++;
   is_busy = false;
 }
+
 static void cliCmd(cli_args_t *args)
 {
   bool ret = false;
@@ -242,14 +258,18 @@ static void cliCmd(cli_args_t *args)
     cliPrintf("nkro      : %d\n", keymap_config.nkro);
     cliPrintf("link set  : %d 회, 지금 눌린 키 %d\n",
               linkGetSetCount(), linkGetKeyCount());
+
     cliPrintf("link rows : ");
     for (uint8_t r=0; r<LINK_MATRIX_ROWS; r++)
       if (linkGetRow(r)) cliPrintf("[%d]=%04X ", r, linkGetRow(r));
     cliPrintf("\n");
+
     cliPrintf("mtx  rows : ");
     for (uint8_t r=0; r<MATRIX_ROWS; r++)
-      if (matrix_get_row(r)) cliPrintf("[%d]=%04X ", r, (unsigned)matrix_get_row(r));
+      if (matrix_get_row(r))
+        cliPrintf("[%d]=%04X ", r, (unsigned)matrix_get_row(r));
     cliPrintf("\n");
+
     ret = true;
   }
 
@@ -260,6 +280,7 @@ static void cliCmd(cli_args_t *args)
     while(cliKeepLoop())
     {
       cliPrintf("\r");
+
       for (uint8_t r=0; r<MATRIX_ROWS; r++)
       {
         matrix_row_t bits = matrix_get_row(r);
@@ -272,9 +293,11 @@ static void cliCmd(cli_args_t *args)
           }
         }
       }
+
       cliPrintf("      ");
       delay(50);
     }
+
     cliPrintf("\n");
     ret = true;
   }
@@ -292,7 +315,8 @@ static void cliCmd(cli_args_t *args)
     {
       uint32_t exe_time = micros();
       eeprom_flush();
-      cliPrintf("eeprom_flush() : %d us\n", (int)(micros() - exe_time));
+      cliPrintf("eeprom_flush() : %d us\n",
+                (int)(micros() - exe_time));
     }
 
     if (args->argc == 2 && args->isStr(1, "erase"))
@@ -303,30 +327,50 @@ static void cliCmd(cli_args_t *args)
     }
 
     cliPrintf("size      : %d B  @ 0x%06X\n",
-              TOTAL_EEPROM_BYTE_COUNT, (unsigned)eepromGetBase());
+              TOTAL_EEPROM_BYTE_COUNT,
+              (unsigned)eepromGetBase());
+
     cliPrintf("프로파일  : %d / %d  (키맵 한 벌 %d B)\n",
-              eepromGetProfile(), EEPROM_PROFILE_MAX, EEPROM_PROFILE_KEYMAP_SIZE);
+              eepromGetProfile(),
+              EEPROM_PROFILE_MAX,
+              EEPROM_PROFILE_KEYMAP_SIZE);
+
     cliPrintf("섀도      : %s\n",
               eepromIsInit() ? "읽어 둠" : "미초기화 (qmk start 전)");
-    cliPrintf("dirty     : 0x%X\n", (unsigned)eepromGetDirtyMask());
-    cliPrintf("flush cnt : %d 회\n", (int)eepromGetFlushCount());
-    cliPrintf("flush time: %d us (마지막 섹터)\n", (int)eepromGetFlushTime());
-    cliPrintf("eeconfig  : %s\n", eeconfig_is_enabled() ? "enabled" : "disabled");
+
+    cliPrintf("dirty     : 0x%X\n",
+              (unsigned)eepromGetDirtyMask());
+
+    cliPrintf("flush cnt : %d 회\n",
+              (int)eepromGetFlushCount());
+
+    cliPrintf("flush time: %d us (마지막 섹터)\n",
+              (int)eepromGetFlushTime());
+
+    cliPrintf("eeconfig  : %s\n",
+              eeconfig_is_enabled() ? "enabled" : "disabled");
 
     eeprom_read_block(shadow, (const void *)0, sizeof(shadow));
     flashRead(eepromGetBase(), onflash, sizeof(onflash));
 
     cliPrintf("shadow    : ");
-    for (int i=0; i<32; i++) cliPrintf("%02X ", shadow[i]);
+    for (int i=0; i<32; i++)
+      cliPrintf("%02X ", shadow[i]);
     cliPrintf("\n");
+
     cliPrintf("flash     : ");
-    for (int i=0; i<32; i++) cliPrintf("%02X ", onflash[i]);
+    for (int i=0; i<32; i++)
+      cliPrintf("%02X ", onflash[i]);
     cliPrintf("\n");
+
     if (eepromIsInit() == true)
     {
       cliPrintf("일치      : %s\n",
-                memcmp(shadow, onflash, sizeof(shadow)) == 0 ? "예" : "아니오 (아직 미저장)");
+                memcmp(shadow, onflash, sizeof(shadow)) == 0
+                  ? "예"
+                  : "아니오 (아직 미저장)");
     }
+
     ret = true;
   }
 
@@ -338,3 +382,4 @@ static void cliCmd(cli_args_t *args)
     cliPrintf("qmk eeprom [flush|erase]\n");
   }
 }
+```
