@@ -238,12 +238,13 @@ layer_state_t active_layers = layer_state | default_layer_state;
 uint8_t current_layer = get_highest_layer(active_layers);
 
 
-    if (current_layer != last_layer)
-    {
-      last_layer = current_layer;
-      cliPrintf("LAYER %u\n", (unsigned)current_layer);
-    }
-  }
+   if (current_layer != last_layer)
+{
+    last_layer = current_layer;
+    cliPrintf("LAYER %u STATE %08X\n",
+              (unsigned)current_layer,
+              (unsigned)layer_state);
+}
 
   task_count++;
   is_busy = false;
