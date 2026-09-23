@@ -134,16 +134,22 @@ uint8_t qmkGetProfile(void)
 }
 
 void qmkProfileCopyTo(uint8_t profile)
-bool qmkIsBusy(void)
-{
-  return is_busy;
-}
-
 void qmkUpdate(void)
 {
+  /*
+   * ★ 재진입을 막는다.
+   *
+   *   QMK 가 wait_ms() 를 부르면 이렇게 돌아온다 —
+   *
+   *     keyboard_task() -> qs_wait_ms() -> wait_ms() -> delay()
+   *       -> cliLoopIdle() -> qmkUpdate()   ★ 재진입
+   *
+   *   대신 USB 처리는 cliLoopIdle() 에서 계속 돈다.
+   */
   if (is_busy == true) return;
   is_busy = true;
 
+  // QMK 가 꺼져 있어도 EEPROM 작업은 계속 처리한다.
   eeprom_task();
 
   if (is_qmk_on != true)
@@ -152,6 +158,7 @@ void qmkUpdate(void)
     return;
   }
 
+  // 프로파일이 안 채워져 있으면 채운다.
   eepromProfileEnsure();
 
 #ifdef RAW_ENABLE
@@ -161,8 +168,7 @@ void qmkUpdate(void)
     while (usbdHidGetRaw(raw_data) == true)
     {
 #ifdef VIAL_ENABLE
-      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN))
-        continue;
+      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN)) continue;
 
       if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, vial_unlocked == 0))
         continue;
@@ -176,6 +182,7 @@ void qmkUpdate(void)
   }
 #endif
 
+  // HID 프로토콜 변경 시 눌린 키를 비운다.
   {
     static uint8_t proto_pre = 1;
     uint8_t proto = usbdHidGetProtocol();
@@ -192,6 +199,7 @@ void qmkUpdate(void)
 
   keyboard_task();
 
+  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
   {
     static uint8_t last_layer = 0xFF;
 
@@ -205,6 +213,27 @@ void qmkUpdate(void)
     {
       last_layer = current_layer;
 
+      cliPrintf(
+          "LAYER %u STATE %08X\n",
+          (unsigned)current_layer,
+          (unsigned)layer_state
+      );
+    }
+  }
+
+  task_count++;
+  is_busy = false;
+}
+  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
+  {
+    static uint8_t last_layer = 0xFF;
+
+    layer_state_t active_layers = layer_state | default_layer_state;
+    uint8_t current_layer = get_highest_layer(active_layers);
+
+    if (current_layer != last_layer)
+    {
+      last_layer = current_layer;
       cliPrintf("LAYER %u STATE %08X\n",
                 (unsigned)current_layer,
                 (unsigned)layer_state);
@@ -214,8 +243,56 @@ void qmkUpdate(void)
   task_count++;
   is_busy = false;
 }
+
+
 static void cliCmd(cli_args_t *args)
 {
+  bool ret = false;
+
+  if (args->argc == 1 && args->isStr(0, "start"))
+  {
+    cliPrintf("qmkInit() ...\n");
+    cliPrintf("%s\n", qmkStart() ? "OK" : "fail");
+    ret = true;
+  }
+
+  if (args->argc == 1 && args->isStr(0, "info"))
+  {
+    cliPrintf("qmk       : %s\n", is_qmk_on ? "on" : "off");
+    cliPrintf("MATRIX    : %d x %d\n", MATRIX_ROWS, MATRIX_COLS);
+    cliPrintf("task cnt  : %d\n", task_count);
+    cliPrintf("protocol  : %d (%s)\n", usbdHidGetProtocol(),
+              usbdHidGetProtocol() ? "report - NKRO" : "boot - 6KRO");
+    cliPrintf("nkro      : %d\n", keymap_config.nkro);
+    cliPrintf("link set  : %d 회, 지금 눌린 키 %d\n",
+              linkGetSetCount(), linkGetKeyCount());
+    cliPrintf("link rows : ");
+    for (uint8_t r=0; r<LINK_MATRIX_ROWS; r++)
+      if (linkGetRow(r)) cliPrintf("[%d]=%04X ", r, linkGetRow(r));
+    cliPrintf("\n");
+    cliPrintf("mtx  rows : ");
+    for (uint8_t r=0; r<MATRIX_ROWS; r++)
+      if (matrix_get_row(r)) cliPrintf("[%d]=%04X ", r, (unsigned)matrix_get_row(r));
+    cliPrintf("\n");
+    ret = true;
+  }
+
+  if (args->argc == 1 && args->isStr(0, "matrix"))
+  {
+    cliPrintf("눌린 키를 보여준다 — 아무 키나 누르면 멈춘다\n");
+
+    while(cliKeepLoop())
+    {
+      cliPrintf("\r");
+      for (uint8_t r=0; r<MATRIX_ROWS; r++)
+      {
+        matrix_row_t bits = matrix_get_row(r);
+
+        for (uint8_t c=0; c<MATRIX_COLS; c++)
+        {
+          if (bits & ((matrix_row_t)1<<c))
+          {
+            cliPrintf("0x%02X ", (r<<4) | c);
           }
         }
       }
@@ -285,4 +362,3 @@ static void cliCmd(cli_args_t *args)
     cliPrintf("qmk eeprom [flush|erase]\n");
   }
 }
-
