@@ -143,6 +143,7 @@ bool qmkIsBusy(void)
   return is_busy;
 }
 
+```c
 void qmkUpdate(void)
 {
   /*
@@ -151,24 +152,14 @@ void qmkUpdate(void)
    *   QMK 가 wait_ms() 를 부르면 이렇게 돌아온다 —
    *
    *     keyboard_task() -> qs_wait_ms() -> wait_ms() -> delay()
-   *       -> cliLoopIdle() -> qmkUpdate() -> keyboard_task()   ★ 재진입
+   *       -> cliLoopIdle() -> qmkUpdate()   ★ 재진입
    *
-   *   (QMK Settings 의 Tap code delay 를 올리면 실제로 이 길이 열린다)
-   *
-   *   매트릭스 스캔 · 탭댄스 상태 · raw HID 처리가 자기 안에서 다시 돈다.
-   *   eeprom_task() 는 플래시를 건드리므로 더 나쁘다.
-   *
-   *   대신 USB 처리(usbUpdate · usbdHidUpdate)는 cliLoopIdle() 에서 계속
-   *   돈다 → 기다리는 동안 큐에 쌓인 리포트가 나간다.
-   *   **이게 Tap code delay 가 원래 의도한 동작이다.**
+   *   대신 USB 처리는 cliLoopIdle() 에서 계속 돈다.
    */
   if (is_busy == true) return;
   is_busy = true;
 
-  // ★ QMK 가 꺼져 있어도 돌린다.
-  //
-  //   `qmk start` 로 켰다가 끈 뒤에도 미저장 dirty 섹터가 남아 있을 수 있다.
-  //   여기서 빠지면 그대로 날아간다.
+  // QMK 가 꺼져 있어도 EEPROM 작업은 계속 처리한다.
   eeprom_task();
 
   if (is_qmk_on != true)
@@ -176,6 +167,74 @@ void qmkUpdate(void)
     is_busy = false;
     return;
   }
+
+  // 프로파일이 안 채워져 있으면 채운다.
+  eepromProfileEnsure();
+
+#ifdef RAW_ENABLE
+  {
+    uint8_t raw_data[HID_RAW_REPORT_LEN];
+
+    while (usbdHidGetRaw(raw_data) == true)
+    {
+#ifdef VIAL_ENABLE
+      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN)) continue;
+
+      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, vial_unlocked == 0))
+        continue;
+#else
+      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, false))
+        continue;
+#endif
+
+      raw_hid_receive(raw_data, HID_RAW_REPORT_LEN);
+    }
+  }
+#endif
+
+  // HID 프로토콜 변경 시 눌린 키를 비운다.
+  {
+    static uint8_t proto_pre = 1;
+    uint8_t proto = usbdHidGetProtocol();
+
+    if (proto != proto_pre)
+    {
+      proto_pre = proto;
+      clear_keyboard();
+
+      logPrintf("[  ] HID protocol %s\r\n",
+                proto ? "report" : "boot");
+    }
+  }
+
+  keyboard_task();
+
+  // 현재 QMK 레이어가 바뀌었을 때만 USB CDC로 알린다.
+  {
+    static uint8_t last_layer = 0xFF;
+
+    layer_state_t active_layers =
+        layer_state | default_layer_state;
+
+    uint8_t current_layer =
+        get_highest_layer(active_layers);
+
+    if (current_layer != last_layer)
+    {
+      last_layer = current_layer;
+
+      cliPrintf(
+          "LAYER %u STATE %08X\n",
+          (unsigned)current_layer,
+          (unsigned)layer_state
+      );
+    }
+  }
+
+  task_count++;
+  is_busy = false;
+}
+```
 
   // 프로파일이 안 채워져 있으면 채운다 (처음 부팅 · EEPROM 초기화 뒤).
   // 매직 4바이트 비교라 매 루프 돌아도 부담이 없다.
