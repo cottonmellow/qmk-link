@@ -141,7 +141,55 @@ bool qmkIsBusy(void)
 
 void qmkUpdate(void)
 {
-  ...
+  if (is_busy == true) return;
+  is_busy = true;
+
+  eeprom_task();
+
+  if (is_qmk_on != true)
+  {
+    is_busy = false;
+    return;
+  }
+
+  eepromProfileEnsure();
+
+#ifdef RAW_ENABLE
+  {
+    uint8_t raw_data[HID_RAW_REPORT_LEN];
+
+    while (usbdHidGetRaw(raw_data) == true)
+    {
+#ifdef VIAL_ENABLE
+      if (vialServeDefinition(raw_data, HID_RAW_REPORT_LEN))
+        continue;
+
+      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, vial_unlocked == 0))
+        continue;
+#else
+      if (linkCmdHandle(raw_data, HID_RAW_REPORT_LEN, false))
+        continue;
+#endif
+
+      raw_hid_receive(raw_data, HID_RAW_REPORT_LEN);
+    }
+  }
+#endif
+
+  {
+    static uint8_t proto_pre = 1;
+    uint8_t proto = usbdHidGetProtocol();
+
+    if (proto != proto_pre)
+    {
+      proto_pre = proto;
+      clear_keyboard();
+
+      logPrintf("[  ] HID protocol %s\r\n",
+                proto ? "report" : "boot");
+    }
+  }
+
   keyboard_task();
 
   {
@@ -157,19 +205,15 @@ void qmkUpdate(void)
     {
       last_layer = current_layer;
 
-      cliPrintf(
-          "LAYER %u STATE %08X\n",
-          (unsigned)current_layer,
-          (unsigned)layer_state
-      );
+      cliPrintf("LAYER %u STATE %08X\n",
+                (unsigned)current_layer,
+                (unsigned)layer_state);
     }
   }
 
   task_count++;
   is_busy = false;
 }
-
-
 static void cliCmd(cli_args_t *args)
 {
           }
